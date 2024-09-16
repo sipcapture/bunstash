@@ -1,0 +1,16 @@
+{
+  "name": "bunstash",
+  "module": "./lib/agent.js",
+  "version": "0.0.1",
+  "devDependencies": {
+    "bun-types": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "type": "module",
+  "dependencies": {
+    "log4node": "^0.1.6",
+    "minimist": "^1.2.8"
+  }
+}

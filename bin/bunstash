@@ -1,0 +1,152 @@
+#!/usr/bin/env bun
+
+import minimist from 'minimist'
+import { readdir } from 'fs/promises'
+import * as Agent from '../lib/agent'
+import * as parser from '../lib/logstash_config'
+
+const logger = require('log4node')
+
+var argv = minimist(process.argv.slice(2))
+
+console.log('🍞 Bunstash is a data ingestion, transformation pipeline tool. Come visit us at https://github.com/sipcapture/bunstash \n')
+
+
+/**
+ * Print Help Message for users
+ */
+function help() {
+    console.log('Syntax : bunstash [--log_level=info] [--log_file=file] [--config_file=/path/to/file.cfg] [--config_dir=/etc/config]')
+}
+
+/**
+ * Entry Point Function
+ * Handle argument settings and calling functions
+ */
+async function main (argv) {
+    let validParams = false
+    /**
+     * Process Help Command
+     */
+    if (argv.help || argv.h) {
+        help()
+        process.exit(0)
+    }
+    console.log('Initializing Core')
+
+    /**
+     * Print Version
+     */
+    let package_json_file = Bun.main
+    let rootPath = package_json_file.split('/bin/bunstash')[0] 
+    console.info('Bunstash Root Path: ', rootPath)
+    let version = await Bun.file(rootPath + '/package.json').json()
+    console.info('Bunstash Version: ', version.version)
+    /**
+     * Process Log Level and Log File options
+     */
+    if (argv.log_file) {
+        let log_level = argv.log_level || process.env.LOG_LEVEL || 'info'
+        console.info('Log to file', argv.log_file, ', with log_level', log_level)
+        logger.reconfigure({
+            level: log_level,
+            file: argv.log_file
+        })
+    } else {
+        var log_level = argv.log_level || process.env.LOG_LEVEL
+        if (log_level) {
+            logger.info('Changing default log_level to', log_level)
+            logger.setLogLevel(log_level)
+        }
+    }
+
+    /**
+     * Process Config File option
+     */
+    let config = []
+
+    if (argv.config_file) {
+        logger.info('Loading config file : ' + argv.config_file)
+        validParams = true
+        try {
+            var loadedConfig = await Bun.file(argv.config_file)
+        } catch (error) {
+            logger.error('Unable to load config file', argv.config_file)
+            logger.error(error.stack)
+            setTimeout(function() {
+                process.exit(1)
+            }, 50)
+            return
+        }
+        console.log('Loaded Config:', loadedConfig)
+        config.push(loadedConfig)
+    }
+
+    /**
+     * Process Config Dir option
+     */
+    if (argv.config_dir) {
+        logger.info('Loading config dir : ' + argv.config_dir)
+        validParams = true
+        try {
+            const files = await readdir(argv.config_dir, { recursive: true })
+            for (const file of files) {
+                var loadedConfigFile = Bun.file(file)
+                console.log('Loaded Config File:', loadedConfigFile)
+                config.push(loadedConfigFile)
+            }
+        } catch (error) {
+            logger.error('Unable to load config dir', argv.config_dir)
+            logger.error(error.stack)
+            setTimeout(function() {
+                process.exit(1)
+            }, 50)
+            return
+        }
+        console.log('Loaded Config Dir:', config)
+    }
+
+    if(!validParams) {
+        logger.error('No valid parameters found, please use at least --config_file or --config_dir')
+        help()
+        process.exit(1)
+    }
+
+    /** Process Configuration Files */
+    for (let i = 0; i < config.length; i++) {
+        let conf = await config[i].text()
+        let parsed = parser.parse(conf)
+        if (parsed) {
+            config[i] = parsed
+        } else {
+            logger.error('Error parsing config file', conf)
+            process.exit(1)
+        }
+    }
+
+    /** Send parsed urls to Agent */
+    Agent.start(config, function (err) {
+        if (err) {
+            logger.error('Error starting agent', err)
+            process.exit(2)
+        }
+        logger.info('Agent started with configs')
+    })
+}
+
+/**
+ * Handle process exceptions
+ */
+process.on('uncaughtException', function(err) {
+    logger.error('Exception has been caught, it\'s a bug');
+    logger.error('Please submit an issue on https://github.com/sipcapture/bunstash');
+    logger.error('Exception:', err);
+    logger.error(err.stack);
+})
+
+/**
+ * Entry Point
+ */
+main(argv)
+
+
