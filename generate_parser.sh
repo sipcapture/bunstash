@@ -1,1 +1,0 @@
-node_modules/.bin/jison lib/logstash_config.jison --outfile lib/logstash_config.js --parser-type lalr
